@@ -182,7 +182,7 @@ export async function trackSentryRelease(
     }
 
     await exec('sentry-cli', ['releases', 'set-commits', releaseName, '--auto'], { env: sentryEnv })
-    await exec('sentry-cli', ['releases', 'deploys', releaseName, 'new', '-e', environment, '-n', `${releaseName} (${environment})`], { env: sentryEnv })
+    await exec('sentry-cli', ['releases', 'deploys', releaseName, 'new', '-e', environment, '-n', `${releaseName}-${environment}`], { env: sentryEnv })
   } finally {
     core.endGroup()
   }
