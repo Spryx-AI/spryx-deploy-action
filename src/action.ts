@@ -191,11 +191,11 @@ export async function trackSentryRelease(
 }
 
 /** Writes a deploy summary to the GitHub Actions step summary. */
-async function writeSummary(inputs: Inputs, sentryTracked: boolean): Promise<void> {
+async function writeSummary(inputs: Inputs, sentryTracked: boolean, failed = false): Promise<void> {
   const serviceRows = inputs.services.map((s) => [s.serviceId, s.image])
 
   await core.summary
-    .addHeading('🚀 Spryx Deploy')
+    .addHeading(failed ? '❌ Spryx Deploy Failed' : '🚀 Spryx Deploy')
     .addTable([
       [
         { data: 'Service ID', header: true },
@@ -219,16 +219,28 @@ async function writeSummary(inputs: Inputs, sentryTracked: boolean): Promise<voi
 export async function run(): Promise<void> {
   const inputs = parseInputs()
 
-  await deployAllServices(inputs.services, inputs.environmentId, inputs.railwayToken)
-
+  let failed = false
+  let caughtError: unknown
   const sentryTracked = Boolean(inputs.sentryAuthToken)
-  await trackSentryRelease(
-    inputs.releaseName,
-    inputs.sentryAuthToken,
-    inputs.sentryOrg,
-    inputs.sentryProjects,
-    inputs.environment
-  )
 
-  await writeSummary(inputs, sentryTracked)
+  try {
+    await deployAllServices(inputs.services, inputs.environmentId, inputs.railwayToken)
+
+    await trackSentryRelease(
+      inputs.releaseName,
+      inputs.sentryAuthToken,
+      inputs.sentryOrg,
+      inputs.sentryProjects,
+      inputs.environment
+    )
+  } catch (err) {
+    failed = true
+    caughtError = err
+  } finally {
+    await writeSummary(inputs, sentryTracked, failed)
+  }
+
+  if (caughtError !== undefined) {
+    throw caughtError
+  }
 }
