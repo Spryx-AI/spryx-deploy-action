@@ -39,17 +39,27 @@ describe('trackSentryRelease', () => {
     expect(newReleaseCall?.[1]).toEqual(['releases', 'new', 'app@1.0.0', '-p', 'api', '-p', 'worker', '-p', 'bo-api'])
   })
 
-  it('continues if sentry-cli releases new fails', async () => {
+  it('continues and warns if sentry-cli releases new fails with already exists', async () => {
     mockExec
       .mockResolvedValueOnce(0) // npm install
-      .mockRejectedValueOnce(new Error('already exists')) // releases new
+      .mockRejectedValueOnce(new Error('release already exists')) // releases new
       .mockResolvedValueOnce(0) // set-commits
       .mockResolvedValueOnce(0) // deploys new
 
     await expect(trackSentryRelease('app@1.0.0', 'sntr_tok', 'my-org', [], 'production')).resolves.not.toThrow()
 
-    expect(core.warning).toHaveBeenCalledWith(expect.stringContaining('may already exist'))
+    expect(core.warning).toHaveBeenCalledWith(expect.stringContaining('release already exists'))
     expect(mockExec).toHaveBeenCalledTimes(4)
+  })
+
+  it('rethrows if sentry-cli releases new fails with an unexpected error', async () => {
+    mockExec
+      .mockResolvedValueOnce(0) // npm install
+      .mockRejectedValueOnce(new Error('authentication failed')) // releases new
+
+    await expect(trackSentryRelease('app@1.0.0', 'sntr_tok', 'my-org', [], 'production')).rejects.toThrow(
+      'authentication failed'
+    )
   })
 
   it('passes SENTRY_AUTH_TOKEN and SENTRY_ORG in env', async () => {

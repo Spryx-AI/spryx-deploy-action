@@ -47,7 +47,7 @@ export function parseInputs(): Inputs {
     releaseName: core.getInput('release_name', { required: true }),
     sentryAuthToken: core.getInput('sentry_auth_token'),
     sentryOrg: core.getInput('sentry_org'),
-    sentryProjects: core.getInput('sentry_projects').split(',').filter(Boolean),
+    sentryProjects: core.getInput('sentry_projects').split(',').map((s) => s.trim()).filter(Boolean),
   }
 }
 
@@ -61,9 +61,8 @@ export async function railwayGraphQL(token: string, query: string, variables: Re
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), RAILWAY_TIMEOUT_MS)
 
-  let response: Response
   try {
-    response = await fetch('https://backboard.railway.com/graphql/v2', {
+    const response = await fetch('https://backboard.railway.com/graphql/v2', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -72,6 +71,13 @@ export async function railwayGraphQL(token: string, query: string, variables: Re
       body: JSON.stringify({ query, variables }),
       signal: controller.signal,
     })
+
+    const body = (await response.json()) as { errors?: { message: string }[] }
+
+    if (!response.ok || body.errors?.length) {
+      const message = body.errors?.map((e) => e.message).join(', ') ?? response.statusText
+      throw new Error(`Railway API error: ${message}`)
+    }
   } catch (err) {
     if (err instanceof Error && err.name === 'AbortError') {
       throw new Error('Railway API request timed out')
@@ -79,13 +85,6 @@ export async function railwayGraphQL(token: string, query: string, variables: Re
     throw err
   } finally {
     clearTimeout(timer)
-  }
-
-  const body = (await response.json()) as { errors?: { message: string }[] }
-
-  if (!response.ok || body.errors?.length) {
-    const message = body.errors?.map((e) => e.message).join(', ') ?? response.statusText
-    throw new Error(`Railway API error: ${message}`)
   }
 }
 
@@ -169,8 +168,13 @@ export async function trackSentryRelease(
 
     try {
       await exec('sentry-cli', ['releases', 'new', releaseName, ...projectFlags], { env: sentryEnv })
-    } catch {
-      core.warning(`sentry-cli releases new failed (may already exist) — continuing`)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      if (message.toLowerCase().includes('already exists')) {
+        core.warning(`sentry-cli releases new: release already exists, continuing. (${message})`)
+      } else {
+        throw err
+      }
     }
 
     await exec('sentry-cli', ['releases', 'set-commits', releaseName, '--auto'], { env: sentryEnv })

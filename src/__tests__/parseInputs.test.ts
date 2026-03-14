@@ -7,7 +7,13 @@ vi.mock('@actions/core')
 const mockGetInput = vi.mocked(core.getInput)
 
 function setInputs(inputs: Record<string, string>) {
-  mockGetInput.mockImplementation((name: string) => inputs[name] ?? '')
+  mockGetInput.mockImplementation((name: string, options?: { required?: boolean }) => {
+    const value = inputs[name] ?? ''
+    if (options?.required && !value) {
+      throw new Error(`Input required and not supplied: ${name}`)
+    }
+    return value
+  })
 }
 
 beforeEach(() => {
@@ -66,6 +72,19 @@ describe('parseInputs', () => {
     })
 
     expect(parseInputs().sentryProjects).toEqual(['api', 'worker'])
+  })
+
+  it('trims whitespace from sentry_projects entries', () => {
+    setInputs({
+      services: '[{"serviceId":"srv_1","image":"img:1"}]',
+      environment: 'staging',
+      environment_id: 'env_1',
+      railway_token: 'tok',
+      release_name: 'app@1.0.0',
+      sentry_projects: 'api, worker, bo-api',
+    })
+
+    expect(parseInputs().sentryProjects).toEqual(['api', 'worker', 'bo-api'])
   })
 
   it('throws on invalid JSON in services', () => {
