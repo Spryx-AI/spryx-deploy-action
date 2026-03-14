@@ -25721,7 +25721,7 @@ function parseInputs() {
             .filter(Boolean),
     };
 }
-const RAILWAY_TIMEOUT_MS = 30000;
+const RAILWAY_TIMEOUT_MS = 30_000;
 /**
  * Executes a GraphQL mutation against the Railway API.
  * Throws on HTTP errors, GraphQL errors in the response body, or request timeout (30s).
@@ -25820,11 +25820,49 @@ async function trackSentryRelease(releaseName, sentryAuthToken, sentryOrg, sentr
     }
     core.info(`Sentry release ${releaseName} deployed to ${environment}.`);
 }
+/** Writes a deploy summary to the GitHub Actions step summary. */
+async function writeSummary(inputs, sentryTracked, failed = false) {
+    const serviceRows = inputs.services.map((s) => [s.serviceId, s.image]);
+    await core.summary
+        .addHeading(failed ? '❌ Spryx Deploy Failed' : '🚀 Spryx Deploy')
+        .addTable([
+        [
+            { data: 'Service ID', header: true },
+            { data: 'Image', header: true },
+        ],
+        ...serviceRows,
+    ])
+        .addTable([
+        [
+            { data: 'Field', header: true },
+            { data: 'Value', header: true },
+        ],
+        ['Environment', inputs.environment],
+        ['Release', inputs.releaseName],
+        ['Sentry tracking', sentryTracked ? '✅ tracked' : '⏭️ skipped'],
+    ])
+        .write();
+}
 /** Entry point: parses inputs, deploys all services, and optionally tracks the Sentry release. */
 async function run() {
     const inputs = parseInputs();
-    await deployAllServices(inputs.services, inputs.environmentId, inputs.railwayToken);
-    await trackSentryRelease(inputs.releaseName, inputs.sentryAuthToken, inputs.sentryOrg, inputs.sentryProjects, inputs.environment);
+    let failed = false;
+    let caughtError;
+    const sentryTracked = Boolean(inputs.sentryAuthToken);
+    try {
+        await deployAllServices(inputs.services, inputs.environmentId, inputs.railwayToken);
+        await trackSentryRelease(inputs.releaseName, inputs.sentryAuthToken, inputs.sentryOrg, inputs.sentryProjects, inputs.environment);
+    }
+    catch (err) {
+        failed = true;
+        caughtError = err;
+    }
+    finally {
+        await writeSummary(inputs, sentryTracked, failed);
+    }
+    if (caughtError !== undefined) {
+        throw caughtError;
+    }
 }
 
 
