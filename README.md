@@ -82,7 +82,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push image
+      - name: Build and push my-app
         uses: docker/build-push-action@v5
         with:
           push: true
@@ -90,11 +90,19 @@ jobs:
           build-args: |
             RELEASE=my-app@${{ steps.version.outputs.value }}
 
+      - name: Build and push my-worker
+        uses: docker/build-push-action@v5
+        with:
+          push: true
+          tags: ghcr.io/my-org/my-worker:${{ steps.version.outputs.value }}
+          build-args: |
+            RELEASE=my-worker@${{ steps.version.outputs.value }}
+
   deploy:
     needs: build-and-push
     runs-on: ubuntu-latest
     steps:
-      - uses: Spryx-AI/deploy-action@v1
+      - uses: Spryx-AI/spryx-deploy-action@v1
         with:
           services: |
             [
