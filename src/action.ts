@@ -1,11 +1,13 @@
 import * as core from '@actions/core'
 import { exec } from '@actions/exec'
 
+/** A Railway service to deploy, identified by its service ID and the Docker image to use. */
 export interface ServiceInput {
   serviceId: string
   image: string
 }
 
+/** Parsed and validated action inputs. */
 export interface Inputs {
   services: ServiceInput[]
   environmentId: string
@@ -17,6 +19,7 @@ export interface Inputs {
   sentryProjects: string[]
 }
 
+/** Reads and validates all action inputs, throwing on invalid values. */
 export function parseInputs(): Inputs {
   const servicesRaw = core.getInput('services', { required: true })
   const environment = core.getInput('environment', { required: true })
@@ -50,6 +53,10 @@ export function parseInputs(): Inputs {
 
 const RAILWAY_TIMEOUT_MS = 30_000
 
+/**
+ * Executes a GraphQL mutation against the Railway API.
+ * Throws on HTTP errors, GraphQL errors in the response body, or request timeout (30s).
+ */
 export async function railwayGraphQL(token: string, query: string, variables: Record<string, unknown>): Promise<void> {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), RAILWAY_TIMEOUT_MS)
@@ -82,6 +89,7 @@ export async function railwayGraphQL(token: string, query: string, variables: Re
   }
 }
 
+/** Updates the Docker image source of a Railway service instance. */
 export async function updateServiceImage(
   token: string,
   environmentId: string,
@@ -97,6 +105,7 @@ export async function updateServiceImage(
   )
 }
 
+/** Triggers a deploy for a Railway service instance. */
 export async function deployService(token: string, environmentId: string, serviceId: string): Promise<void> {
   await railwayGraphQL(
     token,
@@ -107,6 +116,7 @@ export async function deployService(token: string, environmentId: string, servic
   )
 }
 
+/** Updates the image and triggers a deploy for all services in parallel. */
 export async function deployAllServices(
   services: ServiceInput[],
   environmentId: string,
@@ -129,6 +139,10 @@ export async function deployAllServices(
   core.info('All Railway deploys completed.')
 }
 
+/**
+ * Creates a Sentry release, associates commits, and registers the deploy.
+ * Skips silently if `sentryAuthToken` is not provided.
+ */
 export async function trackSentryRelease(
   releaseName: string,
   sentryAuthToken: string,
@@ -168,6 +182,7 @@ export async function trackSentryRelease(
   core.info(`Sentry release ${releaseName} deployed to ${environment}.`)
 }
 
+/** Entry point: parses inputs, deploys all services, and optionally tracks the Sentry release. */
 export async function run(): Promise<void> {
   const inputs = parseInputs()
 
