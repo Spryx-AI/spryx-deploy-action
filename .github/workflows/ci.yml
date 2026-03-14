@@ -72,6 +72,17 @@ jobs:
     needs: [commitlint, typecheck, lint, format, test]
     steps:
       - name: Write job summary
+        env:
+          RESULT_COMMITLINT: ${{ needs.commitlint.result }}
+          RESULT_TYPECHECK: ${{ needs.typecheck.result }}
+          RESULT_LINT: ${{ needs.lint.result }}
+          RESULT_FORMAT: ${{ needs.format.result }}
+          RESULT_TEST: ${{ needs.test.result }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          HEAD_REF: ${{ github.head_ref }}
+          BASE_REF: ${{ github.base_ref }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           function status_icon() {
             case "$1" in
@@ -83,17 +94,17 @@ jobs:
             esac
           }
 
-          COMMITLINT=$(status_icon "${{ needs.commitlint.result }}")
-          TYPECHECK=$(status_icon "${{ needs.typecheck.result }}")
-          LINT=$(status_icon "${{ needs.lint.result }}")
-          FORMAT=$(status_icon "${{ needs.format.result }}")
-          TEST=$(status_icon "${{ needs.test.result }}")
+          COMMITLINT=$(status_icon "$RESULT_COMMITLINT")
+          TYPECHECK=$(status_icon "$RESULT_TYPECHECK")
+          LINT=$(status_icon "$RESULT_LINT")
+          FORMAT=$(status_icon "$RESULT_FORMAT")
+          TEST=$(status_icon "$RESULT_TEST")
 
-          ALL_PASSED=$([[ "${{ needs.commitlint.result }}" == "success" && \
-                         "${{ needs.typecheck.result }}" == "success" && \
-                         "${{ needs.lint.result }}" == "success" && \
-                         "${{ needs.format.result }}" == "success" && \
-                         "${{ needs.test.result }}" == "success" ]] && echo "true" || echo "false")
+          ALL_PASSED=$([[ "$RESULT_COMMITLINT" == "success" && \
+                         "$RESULT_TYPECHECK" == "success" && \
+                         "$RESULT_LINT" == "success" && \
+                         "$RESULT_FORMAT" == "success" && \
+                         "$RESULT_TEST" == "success" ]] && echo "true" || echo "false")
 
           if [[ "$ALL_PASSED" == "true" ]]; then
             OVERALL="✅ All checks passed"
@@ -101,18 +112,32 @@ jobs:
             OVERALL="❌ Some checks failed"
           fi
 
-          cat >> $GITHUB_STEP_SUMMARY << EOF
-          ## CI Summary — $OVERALL
+          cat >> "$GITHUB_STEP_SUMMARY" <<'EOF'
+          ## CI Summary — OVERALL_PLACEHOLDER
 
           | Check | Result |
           |---|---|
-          | Commitlint | $COMMITLINT ${{ needs.commitlint.result }} |
-          | Typecheck | $TYPECHECK ${{ needs.typecheck.result }} |
-          | Lint | $LINT ${{ needs.lint.result }} |
-          | Format | $FORMAT ${{ needs.format.result }} |
-          | Test | $TEST ${{ needs.test.result }} |
+          | Commitlint | COMMITLINT_PLACEHOLDER |
+          | Typecheck | TYPECHECK_PLACEHOLDER |
+          | Lint | LINT_PLACEHOLDER |
+          | Format | FORMAT_PLACEHOLDER |
+          | Test | TEST_PLACEHOLDER |
 
-          **PR:** #${{ github.event.pull_request.number }} — ${{ github.event.pull_request.title }}
-          **Branch:** \`${{ github.head_ref }}\` → \`${{ github.base_ref }}\`
-          **Commit:** \`${{ github.event.pull_request.head.sha }}\`
+          **PR:** #PR_NUMBER_PLACEHOLDER — PR_TITLE_PLACEHOLDER
+          **Branch:** `HEAD_REF_PLACEHOLDER` → `BASE_REF_PLACEHOLDER`
+          **Commit:** `HEAD_SHA_PLACEHOLDER`
           EOF
+
+          sed -i \
+            -e "s|OVERALL_PLACEHOLDER|$OVERALL|" \
+            -e "s|COMMITLINT_PLACEHOLDER|$COMMITLINT $RESULT_COMMITLINT|" \
+            -e "s|TYPECHECK_PLACEHOLDER|$TYPECHECK $RESULT_TYPECHECK|" \
+            -e "s|LINT_PLACEHOLDER|$LINT $RESULT_LINT|" \
+            -e "s|FORMAT_PLACEHOLDER|$FORMAT $RESULT_FORMAT|" \
+            -e "s|TEST_PLACEHOLDER|$TEST $RESULT_TEST|" \
+            -e "s|PR_NUMBER_PLACEHOLDER|$PR_NUMBER|" \
+            -e "s|PR_TITLE_PLACEHOLDER|$PR_TITLE|" \
+            -e "s|HEAD_REF_PLACEHOLDER|$HEAD_REF|" \
+            -e "s|BASE_REF_PLACEHOLDER|$BASE_REF|" \
+            -e "s|HEAD_SHA_PLACEHOLDER|$HEAD_SHA|" \
+            "$GITHUB_STEP_SUMMARY"
