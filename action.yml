@@ -11,7 +11,7 @@ inputs:
     description: 'Target environment name (staging or production)'
     required: true
   railway_token:
-    description: 'Railway project token'
+    description: 'Railway workspace token (used as Bearer token for the GraphQL API)'
     required: true
   release_name:
     description: 'Sentry release name (e.g. my-app@1.2.3)'

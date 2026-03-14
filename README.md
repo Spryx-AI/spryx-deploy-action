@@ -47,7 +47,7 @@ Since `RELEASE` lives inside the image, there is no risk of inconsistency betwee
 | `services` | ✅ | JSON array of `{ serviceId, image }` pairs |
 | `environment_id` | ✅ | Railway environment ID |
 | `environment` | ✅ | Target environment name (`staging` or `production`) |
-| `railway_token` | ✅ | Railway project token |
+| `railway_token` | ✅ | Railway workspace token |
 | `release_name` | ✅ | Release name (e.g. `my-app@1.2.3`) |
 | `sentry_auth_token` | ❌ | Sentry auth token |
 | `sentry_org` | ❌ | Sentry organization slug |
@@ -122,5 +122,5 @@ jobs:
 
 | Secret | Description |
 |---|---|
-| `RAILWAY_TOKEN` | Railway project token (scoped to the target environment) |
+| `RAILWAY_TOKEN` | Railway workspace token |
 | `SENTRY_AUTH_TOKEN` | Sentry auth token (optional) |

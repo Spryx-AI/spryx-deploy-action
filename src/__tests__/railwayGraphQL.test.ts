@@ -26,7 +26,7 @@ describe('railwayGraphQL', () => {
     expect(url).toBe('https://backboard.railway.com/graphql/v2')
     expect(options.method).toBe('POST')
     expect(options.headers['Content-Type']).toBe('application/json')
-    expect(options.headers['Project-Access-Token']).toBe('tok_123')
+    expect(options.headers['Authorization']).toBe('Bearer tok_123')
     expect(options.body).toBe(JSON.stringify({ query: 'query { test }', variables: { foo: 'bar' } }))
     expect(options.signal).toBeInstanceOf(AbortSignal)
   })
