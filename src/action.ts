@@ -113,7 +113,7 @@ export async function deployService(token: string, environmentId: string, servic
   await railwayGraphQL(
     token,
     `mutation DeployService($environmentId: String!, $serviceId: String!) {
-      serviceInstanceDeploy(environmentId: $environmentId, serviceId: $serviceId) { id }
+      serviceInstanceDeploy(environmentId: $environmentId, serviceId: $serviceId)
     }`,
     { environmentId, serviceId }
   )
