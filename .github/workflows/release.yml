@@ -5,6 +5,9 @@ on:
     branches:
       - main
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 permissions:
   contents: write
   issues: write
@@ -21,13 +24,39 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '24'
           cache: 'npm'
 
       - name: Install dependencies
         run: npm ci
 
       - name: Release
+        id: release
         uses: cycjimmy/semantic-release-action@v4
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Write release summary
+        if: always()
+        run: |
+          if [[ "${{ steps.release.outputs.new_release_published }}" == "true" ]]; then
+            cat >> $GITHUB_STEP_SUMMARY << EOF
+          ## 🚀 Release Published
+
+          | Field | Value |
+          |---|---|
+          | Version | \`v${{ steps.release.outputs.new_release_version }}\` |
+          | Channel | \`${{ steps.release.outputs.new_release_channel }}\` |
+          | Notes | [View Release](https://github.com/${{ github.repository }}/releases/tag/v${{ steps.release.outputs.new_release_version }}) |
+
+          **Triggered by:** \`${{ github.sha }}\` pushed to \`${{ github.ref_name }}\`
+          EOF
+          else
+            cat >> $GITHUB_STEP_SUMMARY << EOF
+          ## ⏭️ No Release
+
+          No release was published — no releasable commits found since the last release.
+
+          **Triggered by:** \`${{ github.sha }}\` pushed to \`${{ github.ref_name }}\`
+          EOF
+          fi
