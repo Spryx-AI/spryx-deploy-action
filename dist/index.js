@@ -25764,7 +25764,7 @@ async function updateServiceImage(token, environmentId, serviceId, image) {
 /** Triggers a deploy for a Railway service instance. */
 async function deployService(token, environmentId, serviceId) {
     await railwayGraphQL(token, `mutation DeployService($environmentId: String!, $serviceId: String!) {
-      serviceInstanceDeploy(environmentId: $environmentId, serviceId: $serviceId) { id }
+      serviceInstanceDeploy(environmentId: $environmentId, serviceId: $serviceId)
     }`, { environmentId, serviceId });
 }
 /** Updates the image and triggers a deploy for all services in parallel. */
