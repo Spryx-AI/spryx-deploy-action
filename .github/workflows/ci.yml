@@ -62,3 +62,54 @@ jobs:
           cache: 'npm'
       - run: npm ci
       - run: npm test
+
+  summary:
+    runs-on: ubuntu-latest
+    if: always()
+    needs: [commitlint, typecheck, lint, format, test]
+    steps:
+      - name: Write job summary
+        run: |
+          function status_icon() {
+            case "$1" in
+              success) echo "✅" ;;
+              failure) echo "❌" ;;
+              cancelled) echo "⏸️" ;;
+              skipped) echo "⏭️" ;;
+              *) echo "❓" ;;
+            esac
+          }
+
+          COMMITLINT=$(status_icon "${{ needs.commitlint.result }}")
+          TYPECHECK=$(status_icon "${{ needs.typecheck.result }}")
+          LINT=$(status_icon "${{ needs.lint.result }}")
+          FORMAT=$(status_icon "${{ needs.format.result }}")
+          TEST=$(status_icon "${{ needs.test.result }}")
+
+          ALL_PASSED=$([[ "${{ needs.commitlint.result }}" == "success" && \
+                         "${{ needs.typecheck.result }}" == "success" && \
+                         "${{ needs.lint.result }}" == "success" && \
+                         "${{ needs.format.result }}" == "success" && \
+                         "${{ needs.test.result }}" == "success" ]] && echo "true" || echo "false")
+
+          if [[ "$ALL_PASSED" == "true" ]]; then
+            OVERALL="✅ All checks passed"
+          else
+            OVERALL="❌ Some checks failed"
+          fi
+
+          cat >> $GITHUB_STEP_SUMMARY << EOF
+          ## CI Summary — $OVERALL
+
+          | Check | Result |
+          |---|---|
+          | Commitlint | $COMMITLINT ${{ needs.commitlint.result }} |
+          | Typecheck | $TYPECHECK ${{ needs.typecheck.result }} |
+          | Lint | $LINT ${{ needs.lint.result }} |
+          | Format | $FORMAT ${{ needs.format.result }} |
+          | Test | $TEST ${{ needs.test.result }} |
+
+          **PR:** #${{ github.event.pull_request.number }} — ${{ github.event.pull_request.title }}
+          **Branch:** \`${{ github.head_ref }}\` → \`${{ github.base_ref }}\`
+          **Commit:** \`${{ github.event.pull_request.head.sha }}\`
+          EOF
