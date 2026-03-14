@@ -47,7 +47,11 @@ export function parseInputs(): Inputs {
     releaseName: core.getInput('release_name', { required: true }),
     sentryAuthToken: core.getInput('sentry_auth_token'),
     sentryOrg: core.getInput('sentry_org'),
-    sentryProjects: core.getInput('sentry_projects').split(',').map((s) => s.trim()).filter(Boolean),
+    sentryProjects: core
+      .getInput('sentry_projects')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean),
   }
 }
 

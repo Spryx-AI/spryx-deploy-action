@@ -9,14 +9,16 @@ flowchart TD
     A([Start]) --> B[Parse inputs]
     B --> C{Valid services?}
     C -- No --> Z([Fail])
-    C -- Yes --> D[For each service in parallel]
+    C -- Yes --> D[Spawn parallel deploys]
 
-    subgraph Railway
-        D --> E[Update source.image via GraphQL]
-        E --> F[Trigger deploy via GraphQL]
+    subgraph Railway [Railway — each service runs in parallel]
+        D --> E1[Service 1: update source.image]
+        D --> E2[Service N: update source.image]
+        E1 --> F1[Service 1: trigger deploy]
+        E2 --> F2[Service N: trigger deploy]
     end
 
-    F --> G[All deploys completed]
+    F1 & F2 --> G[All deploys completed]
     G --> H{sentry_auth_token provided?}
     H -- No --> I([Done])
 
@@ -85,6 +87,8 @@ jobs:
       - name: Build and push my-app
         uses: docker/build-push-action@v5
         with:
+          context: ./my-app
+          file: ./my-app/Dockerfile
           push: true
           tags: ghcr.io/my-org/my-app:${{ steps.version.outputs.value }}
           build-args: |
@@ -93,6 +97,8 @@ jobs:
       - name: Build and push my-worker
         uses: docker/build-push-action@v5
         with:
+          context: ./my-worker
+          file: ./my-worker/Dockerfile
           push: true
           tags: ghcr.io/my-org/my-worker:${{ steps.version.outputs.value }}
           build-args: |
@@ -112,10 +118,12 @@ jobs:
           environment_id: env_xyz789
           environment: production
           railway_token: ${{ secrets.RAILWAY_TOKEN }}
+          # release_name typically uses the primary service name; both my-app and my-worker are deployed under this release
           release_name: my-app@${{ needs.build-and-push.outputs.version }}
           sentry_auth_token: ${{ secrets.SENTRY_AUTH_TOKEN }}
           sentry_org: my-org
-          sentry_projects: api,worker
+          # Sentry project slugs may differ from service names — adjust to match your Sentry projects
+          sentry_projects: my-app,my-worker
 ```
 
 ## Required secrets
