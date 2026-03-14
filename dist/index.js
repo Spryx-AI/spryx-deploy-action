@@ -25813,7 +25813,7 @@ async function trackSentryRelease(releaseName, sentryAuthToken, sentryOrg, sentr
             }
         }
         await (0, exec_1.exec)('sentry-cli', ['releases', 'set-commits', releaseName, '--auto'], { env: sentryEnv });
-        await (0, exec_1.exec)('sentry-cli', ['releases', 'deploys', releaseName, 'new', '-e', environment], { env: sentryEnv });
+        await (0, exec_1.exec)('sentry-cli', ['releases', 'deploys', releaseName, 'new', '-e', environment, '-n', `${releaseName}-${environment}`], { env: sentryEnv });
     }
     finally {
         core.endGroup();
