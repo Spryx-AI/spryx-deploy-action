@@ -190,11 +190,38 @@ export async function trackSentryRelease(
   core.info(`Sentry release ${releaseName} deployed to ${environment}.`)
 }
 
+/** Writes a deploy summary to the GitHub Actions step summary. */
+async function writeSummary(inputs: Inputs, sentryTracked: boolean): Promise<void> {
+  const serviceRows = inputs.services.map((s) => [s.serviceId, s.image])
+
+  await core.summary
+    .addHeading('🚀 Spryx Deploy')
+    .addTable([
+      [
+        { data: 'Service ID', header: true },
+        { data: 'Image', header: true },
+      ],
+      ...serviceRows,
+    ])
+    .addTable([
+      [
+        { data: 'Field', header: true },
+        { data: 'Value', header: true },
+      ],
+      ['Environment', inputs.environment],
+      ['Release', inputs.releaseName],
+      ['Sentry tracking', sentryTracked ? '✅ tracked' : '⏭️ skipped'],
+    ])
+    .write()
+}
+
 /** Entry point: parses inputs, deploys all services, and optionally tracks the Sentry release. */
 export async function run(): Promise<void> {
   const inputs = parseInputs()
 
   await deployAllServices(inputs.services, inputs.environmentId, inputs.railwayToken)
+
+  const sentryTracked = Boolean(inputs.sentryAuthToken)
   await trackSentryRelease(
     inputs.releaseName,
     inputs.sentryAuthToken,
@@ -202,4 +229,6 @@ export async function run(): Promise<void> {
     inputs.sentryProjects,
     inputs.environment
   )
+
+  await writeSummary(inputs, sentryTracked)
 }
