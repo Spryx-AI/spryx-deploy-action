@@ -1,6 +1,6 @@
 {
   "name": "spryx-deploy-action",
-  "version": "1.4.1",
+  "version": "1.4.2",
   "description": "Deploy to Railway with Sentry release tracking",
   "main": "dist/index.js",
   "scripts": {
