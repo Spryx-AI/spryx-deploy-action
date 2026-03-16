@@ -133,6 +133,7 @@ describe('pollDeploymentStatus', () => {
     const result = await pollDeploymentStatus('tok', 'dep_1', 60_000)
 
     expect(result).toEqual({
+      serviceId: '',
       deploymentId: 'dep_1',
       status: 'SUCCESS',
       url: 'https://app.railway.app',

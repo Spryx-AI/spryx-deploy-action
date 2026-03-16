@@ -25,6 +25,7 @@ describe('parseInputs', () => {
     setInputs({
       services: '[{"serviceId":"srv_1","image":"ghcr.io/org/app:1.0.0"}]',
       environment: 'production',
+      project_id: 'proj_123',
       environment_id: 'env_123',
       railway_token: 'tok_abc',
       release_name: 'my-app@1.0.0',
@@ -37,6 +38,7 @@ describe('parseInputs', () => {
 
     expect(inputs.services).toEqual([{ serviceId: 'srv_1', image: 'ghcr.io/org/app:1.0.0' }])
     expect(inputs.environment).toBe('production')
+    expect(inputs.projectId).toBe('proj_123')
     expect(inputs.environmentId).toBe('env_123')
     expect(inputs.railwayToken).toBe('tok_abc')
     expect(inputs.releaseName).toBe('my-app@1.0.0')
@@ -49,6 +51,7 @@ describe('parseInputs', () => {
     setInputs({
       services: '[{"serviceId":"srv_1","image":"img:1"},{"serviceId":"srv_2","image":"img:2"}]',
       environment: 'staging',
+      project_id: 'proj_1',
       environment_id: 'env_1',
       railway_token: 'tok',
       release_name: 'app@1.0.0',
@@ -65,6 +68,7 @@ describe('parseInputs', () => {
     setInputs({
       services: '[{"serviceId":"srv_1","image":"img:1"}]',
       environment: 'staging',
+      project_id: 'proj_1',
       environment_id: 'env_1',
       railway_token: 'tok',
       release_name: 'app@1.0.0',
@@ -78,6 +82,7 @@ describe('parseInputs', () => {
     setInputs({
       services: '[{"serviceId":"srv_1","image":"img:1"}]',
       environment: 'staging',
+      project_id: 'proj_1',
       environment_id: 'env_1',
       railway_token: 'tok',
       release_name: 'app@1.0.0',
@@ -91,6 +96,7 @@ describe('parseInputs', () => {
     setInputs({
       services: 'not-json',
       environment: 'production',
+      project_id: 'proj_1',
       environment_id: 'env_1',
       railway_token: 'tok',
       release_name: 'app@1.0.0',
@@ -103,6 +109,7 @@ describe('parseInputs', () => {
     setInputs({
       services: '{"serviceId":"srv_1"}',
       environment: 'production',
+      project_id: 'proj_1',
       environment_id: 'env_1',
       railway_token: 'tok',
       release_name: 'app@1.0.0',
@@ -115,6 +122,7 @@ describe('parseInputs', () => {
     setInputs({
       services: '[{"image":"ghcr.io/org/app:1.0.0"}]',
       environment: 'production',
+      project_id: 'proj_1',
       environment_id: 'env_1',
       railway_token: 'tok',
       release_name: 'app@1.0.0',
@@ -127,6 +135,7 @@ describe('parseInputs', () => {
     setInputs({
       services: '[{"serviceId":"srv_1"}]',
       environment: 'production',
+      project_id: 'proj_1',
       environment_id: 'env_1',
       railway_token: 'tok',
       release_name: 'app@1.0.0',
@@ -139,6 +148,7 @@ describe('parseInputs', () => {
     setInputs({
       services: '[null]',
       environment: 'production',
+      project_id: 'proj_1',
       environment_id: 'env_1',
       railway_token: 'tok',
       release_name: 'app@1.0.0',
@@ -151,6 +161,7 @@ describe('parseInputs', () => {
     setInputs({
       services: '[{"serviceId":"srv_1","image":"img:1"}]',
       environment: 'production',
+      project_id: 'proj_1',
       environment_id: 'env_1',
       railway_token: 'tok',
       release_name: 'app@1.0.0',
@@ -164,6 +175,7 @@ describe('parseInputs', () => {
     setInputs({
       services: '[{"serviceId":"srv_1","image":"img:1"}]',
       environment: 'production',
+      project_id: 'proj_1',
       environment_id: 'env_1',
       railway_token: 'tok',
       release_name: 'app@1.0.0',

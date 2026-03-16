@@ -9,6 +9,7 @@ export interface ServiceInput {
 
 /** The result of a Railway deployment poll. */
 export interface DeploymentResult {
+  serviceId: string
   deploymentId: string
   status: 'SUCCESS' | 'FAILED' | 'CRASHED' | 'REMOVED' | string
   url?: string
@@ -18,6 +19,7 @@ export interface DeploymentResult {
 /** Parsed and validated action inputs. */
 export interface Inputs {
   services: ServiceInput[]
+  projectId: string
   environmentId: string
   railwayToken: string
   releaseName: string
@@ -51,6 +53,7 @@ export function parseInputs(): Inputs {
   return {
     services,
     environment,
+    projectId: core.getInput('project_id', { required: true }),
     environmentId: core.getInput('environment_id', { required: true }),
     railwayToken: core.getInput('railway_token', { required: true }),
     releaseName: core.getInput('release_name', { required: true }),
@@ -192,7 +195,7 @@ export async function pollDeploymentStatus(
     const { status, staticUrl, createdAt } = data.deployment
 
     if (TERMINAL_OK.has(status) || TERMINAL_ERROR.has(status)) {
-      return { deploymentId, status, url: staticUrl, createdAt }
+      return { serviceId: '', deploymentId, status, url: staticUrl, createdAt }
     }
 
     if (Date.now() + pollIntervalMs > deadline) {
@@ -222,7 +225,8 @@ export async function deployAllServices(
         await deployService(railwayToken, environmentId, serviceId)
         const deploymentId = await getLatestDeploymentId(railwayToken, serviceId, environmentId)
         core.info(`Deployment started: ${deploymentId}`)
-        return await pollDeploymentStatus(railwayToken, deploymentId, timeoutMs)
+        const result = await pollDeploymentStatus(railwayToken, deploymentId, timeoutMs)
+        return { ...result, serviceId }
       } finally {
         core.endGroup()
       }
@@ -316,12 +320,15 @@ async function writeSummary(
   if (deploymentResults.length > 0) {
     const deployRows = deploymentResults.map((r) => {
       const statusEmoji = r.status === 'SUCCESS' ? '✅' : '❌'
-      return [r.deploymentId, `${statusEmoji} ${r.status}`, r.url ?? '—']
+      const railwayUrl = `https://railway.com/project/${inputs.projectId}/service/${r.serviceId}?environmentId=${inputs.environmentId}&id=${r.deploymentId}#deploy`
+      const railwayLink = `<a href="${railwayUrl}">${r.deploymentId}</a>`
+      const appUrl = r.url ? `<a href="${r.url}">${r.url}</a>` : '—'
+      return [railwayLink, `${statusEmoji} ${r.status}`, appUrl]
     })
 
     builder = builder.addTable([
       [
-        { data: 'Deployment ID', header: true },
+        { data: 'Deployment', header: true },
         { data: 'Status', header: true },
         { data: 'URL', header: true },
       ],

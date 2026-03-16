@@ -48,6 +48,7 @@ Since `RELEASE` lives inside the image, there is no risk of inconsistency betwee
 | Input | Required | Default | Description |
 |---|---|---|---|
 | `services` | ✅ | — | JSON array of `{ serviceId, image }` pairs |
+| `project_id` | ✅ | — | Railway project ID |
 | `environment_id` | ✅ | — | Railway environment ID |
 | `environment` | ✅ | — | Target environment name (e.g. `staging`, `production`) |
 | `railway_token` | ✅ | — | Railway workspace token |
@@ -113,6 +114,7 @@ jobs:
               { "serviceId": "srv_abc123", "image": "ghcr.io/my-org/my-app:${{ needs.build-and-push.outputs.version }}" },
               { "serviceId": "srv_def456", "image": "ghcr.io/my-org/my-worker:${{ needs.build-and-push.outputs.version }}" }
             ]
+          project_id: 6ffdef05-9b0f-418f-9ea7-23bf10dae60d
           environment_id: env_xyz789
           environment: production
           railway_token: ${{ secrets.RAILWAY_TOKEN }}
