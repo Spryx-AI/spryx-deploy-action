@@ -25686,6 +25686,7 @@ exports.parseInputs = parseInputs;
 exports.railwayGraphQL = railwayGraphQL;
 exports.updateServiceImage = updateServiceImage;
 exports.deployService = deployService;
+exports.pollDeploymentStatus = pollDeploymentStatus;
 exports.deployAllServices = deployAllServices;
 exports.trackSentryRelease = trackSentryRelease;
 exports.run = run;
@@ -25719,9 +25720,13 @@ function parseInputs() {
             .split(',')
             .map((s) => s.trim())
             .filter(Boolean),
+        deployWaitTimeoutMs: parseInt(core.getInput('deploy_wait_timeout_minutes') || '10', 10) * 60_000,
     };
 }
 const RAILWAY_TIMEOUT_MS = 30_000;
+const RAILWAY_POLL_INTERVAL_MS = 10_000;
+const TERMINAL_OK = new Set(['SUCCESS']);
+const TERMINAL_ERROR = new Set(['FAILED', 'CRASHED', 'REMOVED']);
 /**
  * Executes a GraphQL mutation against the Railway API.
  * Throws on HTTP errors, GraphQL errors in the response body, or request timeout (30s).
@@ -25744,6 +25749,7 @@ async function railwayGraphQL(token, query, variables) {
             const message = body.errors?.map((e) => e.message).join(', ') ?? response.statusText;
             throw new Error(`Railway API error: ${message}`);
         }
+        return body.data;
     }
     catch (err) {
         if (err instanceof Error && err.name === 'AbortError') {
@@ -25761,26 +25767,54 @@ async function updateServiceImage(token, environmentId, serviceId, image) {
       serviceInstanceUpdate(environmentId: $environmentId, serviceId: $serviceId, input: $input)
     }`, { environmentId, serviceId, input: { source: { image } } });
 }
-/** Triggers a deploy for a Railway service instance. */
+/** Triggers a deploy for a Railway service instance and returns the deployment ID. */
 async function deployService(token, environmentId, serviceId) {
-    await railwayGraphQL(token, `mutation DeployService($environmentId: String!, $serviceId: String!) {
+    const data = await railwayGraphQL(token, `mutation DeployService($environmentId: String!, $serviceId: String!) {
       serviceInstanceDeploy(environmentId: $environmentId, serviceId: $serviceId)
     }`, { environmentId, serviceId });
+    return data.serviceInstanceDeploy;
 }
-/** Updates the image and triggers a deploy for all services in parallel. */
-async function deployAllServices(services, environmentId, railwayToken) {
+/**
+ * Polls the Railway API until the deployment reaches a terminal state or the timeout is exceeded.
+ * Terminal OK: SUCCESS. Terminal error: FAILED, CRASHED, REMOVED.
+ */
+async function pollDeploymentStatus(token, deploymentId, timeoutMs, pollIntervalMs = RAILWAY_POLL_INTERVAL_MS) {
+    const deadline = Date.now() + timeoutMs;
+    while (true) {
+        const data = await railwayGraphQL(token, `query PollDeployment($id: String!) {
+        deployment(id: $id) {
+          status
+          staticUrl
+          createdAt
+        }
+      }`, { id: deploymentId });
+        const { status, staticUrl, createdAt } = data.deployment;
+        if (TERMINAL_OK.has(status) || TERMINAL_ERROR.has(status)) {
+            return { deploymentId, status, url: staticUrl, createdAt };
+        }
+        if (Date.now() + pollIntervalMs > deadline) {
+            throw new Error(`Deployment ${deploymentId} did not reach a terminal state within ${timeoutMs / 60_000} minutes (last status: ${status})`);
+        }
+        await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+    }
+}
+/** Updates the image, triggers a deploy, and waits for completion for all services in parallel. */
+async function deployAllServices(services, environmentId, railwayToken, timeoutMs) {
     core.info(`Deploying ${services.length} service(s): ${services.map((s) => s.serviceId).join(', ')}`);
-    await Promise.all(services.map(async ({ serviceId, image }) => {
+    const results = await Promise.all(services.map(async ({ serviceId, image }) => {
         core.startGroup(`Deploy: ${serviceId}`);
         try {
             await updateServiceImage(railwayToken, environmentId, serviceId, image);
-            await deployService(railwayToken, environmentId, serviceId);
+            const deploymentId = await deployService(railwayToken, environmentId, serviceId);
+            core.info(`Deployment started: ${deploymentId}`);
+            return await pollDeploymentStatus(railwayToken, deploymentId, timeoutMs);
         }
         finally {
             core.endGroup();
         }
     }));
     core.info('All Railway deploys completed.');
+    return results;
 }
 /**
  * Creates a Sentry release, associates commits, and registers the deploy.
@@ -25821,9 +25855,9 @@ async function trackSentryRelease(releaseName, sentryAuthToken, sentryOrg, sentr
     core.info(`Sentry release ${releaseName} deployed to ${environment}.`);
 }
 /** Writes a deploy summary to the GitHub Actions step summary. */
-async function writeSummary(inputs, sentryTracked, failed = false) {
+async function writeSummary(inputs, sentryTracked, deploymentResults, failed = false) {
     const serviceRows = inputs.services.map((s) => [s.serviceId, s.image]);
-    await core.summary
+    let builder = core.summary
         .addHeading(failed ? '❌ Spryx Deploy Failed' : '🚀 Spryx Deploy')
         .addTable([
         [
@@ -25840,8 +25874,22 @@ async function writeSummary(inputs, sentryTracked, failed = false) {
         ['Environment', inputs.environment],
         ['Release', inputs.releaseName],
         ['Sentry tracking', sentryTracked ? '✅ tracked' : '⏭️ skipped'],
-    ])
-        .write();
+    ]);
+    if (deploymentResults.length > 0) {
+        const deployRows = deploymentResults.map((r) => {
+            const statusEmoji = r.status === 'SUCCESS' ? '✅' : '❌';
+            return [r.deploymentId, `${statusEmoji} ${r.status}`, r.url ?? '—'];
+        });
+        builder = builder.addTable([
+            [
+                { data: 'Deployment ID', header: true },
+                { data: 'Status', header: true },
+                { data: 'URL', header: true },
+            ],
+            ...deployRows,
+        ]);
+    }
+    await builder.write();
 }
 /** Entry point: parses inputs, deploys all services, and optionally tracks the Sentry release. */
 async function run() {
@@ -25849,8 +25897,9 @@ async function run() {
     let failed = false;
     let caughtError;
     const sentryTracked = Boolean(inputs.sentryAuthToken);
+    let deploymentResults = [];
     try {
-        await deployAllServices(inputs.services, inputs.environmentId, inputs.railwayToken);
+        deploymentResults = await deployAllServices(inputs.services, inputs.environmentId, inputs.railwayToken, inputs.deployWaitTimeoutMs);
         await trackSentryRelease(inputs.releaseName, inputs.sentryAuthToken, inputs.sentryOrg, inputs.sentryProjects, inputs.environment);
     }
     catch (err) {
@@ -25858,7 +25907,7 @@ async function run() {
         caughtError = err;
     }
     finally {
-        await writeSummary(inputs, sentryTracked, failed);
+        await writeSummary(inputs, sentryTracked, deploymentResults, failed);
     }
     if (caughtError !== undefined) {
         throw caughtError;
