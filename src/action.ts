@@ -335,10 +335,7 @@ async function writeSummary(
   if (deploymentResults.length > 0) {
     const deployRows = deploymentResults.map((r) => {
       const statusEmoji = r.status === 'SUCCESS' ? '✅' : '❌'
-      // projectId and deploymentId come from the Railway API (not secrets) so they are never masked.
-      // serviceId and environmentId may match GitHub secret values and would appear as *** in the URL,
-      // breaking the link. We link to the project deployments page instead, which only needs projectId.
-      const railwayUrl = `https://railway.com/project/${projectId}/deployments?deploymentId=${r.deploymentId}`
+      const railwayUrl = `https://railway.com/project/${projectId}/service/${r.serviceId}?environmentId=${r.environmentId}&id=${r.deploymentId}#deploy`
       const railwayLink = `<a href="${railwayUrl}">${r.deploymentId}</a>`
       const appUrl = r.url ? `<a href="${r.url}">${r.url}</a>` : '—'
       return [railwayLink, `${statusEmoji} ${r.status}`, appUrl]
