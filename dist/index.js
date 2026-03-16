@@ -25709,13 +25709,18 @@ function parseInputs() {
     catch (err) {
         throw new Error(`Invalid services input: ${err}`);
     }
+    const sentryAuthToken = core.getInput('sentry_auth_token');
+    const releaseName = core.getInput('release_name');
+    if (sentryAuthToken && !releaseName) {
+        throw new Error('release_name is required when sentry_auth_token is provided');
+    }
     return {
         services,
         environment,
         environmentId: core.getInput('environment_id', { required: true }),
         railwayToken: core.getInput('railway_token', { required: true }),
-        releaseName: core.getInput('release_name', { required: true }),
-        sentryAuthToken: core.getInput('sentry_auth_token'),
+        releaseName,
+        sentryAuthToken,
         sentryOrg: core.getInput('sentry_org'),
         sentryProjects: core
             .getInput('sentry_projects')
@@ -25901,7 +25906,7 @@ async function writeSummary(inputs, sentryTracked, deploymentResults, projectId,
             { data: 'Value', header: true },
         ],
         ['Environment', inputs.environment],
-        ['Release', inputs.releaseName],
+        ['Release', inputs.releaseName || '—'],
         ['Sentry tracking', sentryTracked ? '✅ tracked' : '⏭️ skipped'],
     ]);
     if (deploymentResults.length > 0) {

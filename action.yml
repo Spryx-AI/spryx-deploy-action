@@ -14,8 +14,8 @@ inputs:
     description: 'Railway workspace token (used as Bearer token for the GraphQL API)'
     required: true
   release_name:
-    description: 'Sentry release name (e.g. my-app@1.2.3)'
-    required: true
+    description: 'Sentry release name (e.g. my-app@1.2.3). Required only when using Sentry tracking.'
+    required: false
   sentry_auth_token:
     description: 'Sentry auth token'
     required: false
