@@ -10,6 +10,7 @@ export interface ServiceInput {
 /** The result of a Railway deployment poll. */
 export interface DeploymentResult {
   serviceId: string
+  environmentId: string
   deploymentId: string
   status: 'SUCCESS' | 'FAILED' | 'CRASHED' | 'REMOVED' | string
   url?: string
@@ -191,12 +192,14 @@ export async function pollDeploymentStatus(
 
   while (true) {
     const data = await railwayGraphQL<{
-      deployment: { status: string; staticUrl?: string; createdAt?: string }
+      deployment: { status: string; serviceId: string; environmentId: string; staticUrl?: string; createdAt?: string }
     }>(
       token,
       `query PollDeployment($id: String!) {
         deployment(id: $id) {
           status
+          serviceId
+          environmentId
           staticUrl
           createdAt
         }
@@ -204,10 +207,10 @@ export async function pollDeploymentStatus(
       { id: deploymentId }
     )
 
-    const { status, staticUrl, createdAt } = data.deployment
+    const { status, serviceId, environmentId, staticUrl, createdAt } = data.deployment
 
     if (TERMINAL_OK.has(status) || TERMINAL_ERROR.has(status)) {
-      return { serviceId: '', deploymentId, status, url: staticUrl, createdAt }
+      return { serviceId, environmentId, deploymentId, status, url: staticUrl, createdAt }
     }
 
     if (Date.now() + pollIntervalMs > deadline) {
@@ -237,8 +240,7 @@ export async function deployAllServices(
         await deployService(railwayToken, environmentId, serviceId)
         const deploymentId = await getLatestDeploymentId(railwayToken, serviceId, environmentId)
         core.info(`Deployment started: ${deploymentId}`)
-        const result = await pollDeploymentStatus(railwayToken, deploymentId, timeoutMs)
-        return { ...result, serviceId }
+        return await pollDeploymentStatus(railwayToken, deploymentId, timeoutMs)
       } finally {
         core.endGroup()
       }
@@ -333,7 +335,7 @@ async function writeSummary(
   if (deploymentResults.length > 0) {
     const deployRows = deploymentResults.map((r) => {
       const statusEmoji = r.status === 'SUCCESS' ? '✅' : '❌'
-      const railwayUrl = `https://railway.com/project/${projectId}/service/${r.serviceId}?environmentId=${inputs.environmentId}&id=${r.deploymentId}#deploy`
+      const railwayUrl = `https://railway.com/project/${projectId}/service/${r.serviceId}?environmentId=${r.environmentId}&id=${r.deploymentId}#deploy`
       const railwayLink = `<a href="${railwayUrl}">${r.deploymentId}</a>`
       const appUrl = r.url ? `<a href="${r.url}">${r.url}</a>` : '—'
       return [railwayLink, `${statusEmoji} ${r.status}`, appUrl]

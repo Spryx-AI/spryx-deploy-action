@@ -140,14 +140,21 @@ describe('pollDeploymentStatus', () => {
   it('returns immediately on SUCCESS', async () => {
     mockResponse({
       data: {
-        deployment: { status: 'SUCCESS', staticUrl: 'https://app.railway.app', createdAt: '2026-01-01T00:00:00Z' },
+        deployment: {
+          status: 'SUCCESS',
+          serviceId: 'srv_1',
+          environmentId: 'env_1',
+          staticUrl: 'https://app.railway.app',
+          createdAt: '2026-01-01T00:00:00Z',
+        },
       },
     })
 
     const result = await pollDeploymentStatus('tok', 'dep_1', 60_000)
 
     expect(result).toEqual({
-      serviceId: '',
+      serviceId: 'srv_1',
+      environmentId: 'env_1',
       deploymentId: 'dep_1',
       status: 'SUCCESS',
       url: 'https://app.railway.app',
@@ -220,5 +227,7 @@ describe('pollDeploymentStatus', () => {
     expect(body.query).toContain('deployment(id: $id)')
     expect(body.query).toContain('status')
     expect(body.query).toContain('staticUrl')
+    expect(body.query).toContain('serviceId')
+    expect(body.query).toContain('environmentId')
   })
 })
