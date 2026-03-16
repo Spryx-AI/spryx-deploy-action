@@ -25810,13 +25810,15 @@ async function pollDeploymentStatus(token, deploymentId, timeoutMs, pollInterval
         const data = await railwayGraphQL(token, `query PollDeployment($id: String!) {
         deployment(id: $id) {
           status
+          serviceId
+          environmentId
           staticUrl
           createdAt
         }
       }`, { id: deploymentId });
-        const { status, staticUrl, createdAt } = data.deployment;
+        const { status, serviceId, environmentId, staticUrl, createdAt } = data.deployment;
         if (TERMINAL_OK.has(status) || TERMINAL_ERROR.has(status)) {
-            return { serviceId: '', deploymentId, status, url: staticUrl, createdAt };
+            return { serviceId, environmentId, deploymentId, status, url: staticUrl, createdAt };
         }
         if (Date.now() + pollIntervalMs > deadline) {
             throw new Error(`Deployment ${deploymentId} did not reach a terminal state within ${timeoutMs / 60_000} minutes (last status: ${status})`);
@@ -25834,8 +25836,7 @@ async function deployAllServices(services, environmentId, railwayToken, timeoutM
             await deployService(railwayToken, environmentId, serviceId);
             const deploymentId = await getLatestDeploymentId(railwayToken, serviceId, environmentId);
             core.info(`Deployment started: ${deploymentId}`);
-            const result = await pollDeploymentStatus(railwayToken, deploymentId, timeoutMs);
-            return { ...result, serviceId };
+            return await pollDeploymentStatus(railwayToken, deploymentId, timeoutMs);
         }
         finally {
             core.endGroup();
@@ -25906,7 +25907,7 @@ async function writeSummary(inputs, sentryTracked, deploymentResults, projectId,
     if (deploymentResults.length > 0) {
         const deployRows = deploymentResults.map((r) => {
             const statusEmoji = r.status === 'SUCCESS' ? '✅' : '❌';
-            const railwayUrl = `https://railway.com/project/${projectId}/service/${r.serviceId}?environmentId=${inputs.environmentId}&id=${r.deploymentId}#deploy`;
+            const railwayUrl = `https://railway.com/project/${projectId}/service/${r.serviceId}?environmentId=${r.environmentId}&id=${r.deploymentId}#deploy`;
             const railwayLink = `<a href="${railwayUrl}">${r.deploymentId}</a>`;
             const appUrl = r.url ? `<a href="${r.url}">${r.url}</a>` : '—';
             return [railwayLink, `${statusEmoji} ${r.status}`, appUrl];
