@@ -7,6 +7,14 @@ export interface ServiceInput {
   image: string
 }
 
+/** The result of a Railway deployment poll. */
+export interface DeploymentResult {
+  deploymentId: string
+  status: 'SUCCESS' | 'FAILED' | 'CRASHED' | 'REMOVED' | string
+  url?: string
+  createdAt?: string
+}
+
 /** Parsed and validated action inputs. */
 export interface Inputs {
   services: ServiceInput[]
@@ -17,6 +25,7 @@ export interface Inputs {
   sentryAuthToken: string
   sentryOrg: string
   sentryProjects: string[]
+  deployWaitTimeoutMs: number
 }
 
 /** Reads and validates all action inputs, throwing on invalid values. */
@@ -52,16 +61,25 @@ export function parseInputs(): Inputs {
       .split(',')
       .map((s) => s.trim())
       .filter(Boolean),
+    deployWaitTimeoutMs: parseInt(core.getInput('deploy_wait_timeout_minutes') || '10', 10) * 60_000,
   }
 }
 
 const RAILWAY_TIMEOUT_MS = 30_000
+const RAILWAY_POLL_INTERVAL_MS = 10_000
+
+const TERMINAL_OK = new Set(['SUCCESS'])
+const TERMINAL_ERROR = new Set(['FAILED', 'CRASHED', 'REMOVED'])
 
 /**
  * Executes a GraphQL mutation against the Railway API.
  * Throws on HTTP errors, GraphQL errors in the response body, or request timeout (30s).
  */
-export async function railwayGraphQL(token: string, query: string, variables: Record<string, unknown>): Promise<void> {
+export async function railwayGraphQL<T = void>(
+  token: string,
+  query: string,
+  variables: Record<string, unknown>
+): Promise<T> {
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), RAILWAY_TIMEOUT_MS)
 
@@ -76,12 +94,14 @@ export async function railwayGraphQL(token: string, query: string, variables: Re
       signal: controller.signal,
     })
 
-    const body = (await response.json()) as { errors?: { message: string }[] }
+    const body = (await response.json()) as { data?: T; errors?: { message: string }[] }
 
     if (!response.ok || body.errors?.length) {
       const message = body.errors?.map((e) => e.message).join(', ') ?? response.statusText
       throw new Error(`Railway API error: ${message}`)
     }
+
+    return body.data as T
   } catch (err) {
     if (err instanceof Error && err.name === 'AbortError') {
       throw new Error('Railway API request timed out')
@@ -108,31 +128,78 @@ export async function updateServiceImage(
   )
 }
 
-/** Triggers a deploy for a Railway service instance. */
-export async function deployService(token: string, environmentId: string, serviceId: string): Promise<void> {
-  await railwayGraphQL(
+/** Triggers a deploy for a Railway service instance and returns the deployment ID. */
+export async function deployService(token: string, environmentId: string, serviceId: string): Promise<string> {
+  const data = await railwayGraphQL<{ serviceInstanceDeploy: string }>(
     token,
     `mutation DeployService($environmentId: String!, $serviceId: String!) {
       serviceInstanceDeploy(environmentId: $environmentId, serviceId: $serviceId)
     }`,
     { environmentId, serviceId }
   )
+  return data.serviceInstanceDeploy
 }
 
-/** Updates the image and triggers a deploy for all services in parallel. */
+/**
+ * Polls the Railway API until the deployment reaches a terminal state or the timeout is exceeded.
+ * Terminal OK: SUCCESS. Terminal error: FAILED, CRASHED, REMOVED.
+ */
+export async function pollDeploymentStatus(
+  token: string,
+  deploymentId: string,
+  timeoutMs: number,
+  pollIntervalMs = RAILWAY_POLL_INTERVAL_MS
+): Promise<DeploymentResult> {
+  const deadline = Date.now() + timeoutMs
+
+  while (true) {
+    const data = await railwayGraphQL<{
+      deployment: { status: string; staticUrl?: string; createdAt?: string }
+    }>(
+      token,
+      `query PollDeployment($id: String!) {
+        deployment(id: $id) {
+          status
+          staticUrl
+          createdAt
+        }
+      }`,
+      { id: deploymentId }
+    )
+
+    const { status, staticUrl, createdAt } = data.deployment
+
+    if (TERMINAL_OK.has(status) || TERMINAL_ERROR.has(status)) {
+      return { deploymentId, status, url: staticUrl, createdAt }
+    }
+
+    if (Date.now() + pollIntervalMs > deadline) {
+      throw new Error(
+        `Deployment ${deploymentId} did not reach a terminal state within ${timeoutMs / 60_000} minutes (last status: ${status})`
+      )
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, pollIntervalMs))
+  }
+}
+
+/** Updates the image, triggers a deploy, and waits for completion for all services in parallel. */
 export async function deployAllServices(
   services: ServiceInput[],
   environmentId: string,
-  railwayToken: string
-): Promise<void> {
+  railwayToken: string,
+  timeoutMs: number
+): Promise<DeploymentResult[]> {
   core.info(`Deploying ${services.length} service(s): ${services.map((s) => s.serviceId).join(', ')}`)
 
-  await Promise.all(
-    services.map(async ({ serviceId, image }) => {
+  const results = await Promise.all(
+    services.map(async ({ serviceId, image }): Promise<DeploymentResult> => {
       core.startGroup(`Deploy: ${serviceId}`)
       try {
         await updateServiceImage(railwayToken, environmentId, serviceId, image)
-        await deployService(railwayToken, environmentId, serviceId)
+        const deploymentId = await deployService(railwayToken, environmentId, serviceId)
+        core.info(`Deployment started: ${deploymentId}`)
+        return await pollDeploymentStatus(railwayToken, deploymentId, timeoutMs)
       } finally {
         core.endGroup()
       }
@@ -140,6 +207,7 @@ export async function deployAllServices(
   )
 
   core.info('All Railway deploys completed.')
+  return results
 }
 
 /**
@@ -182,7 +250,11 @@ export async function trackSentryRelease(
     }
 
     await exec('sentry-cli', ['releases', 'set-commits', releaseName, '--auto'], { env: sentryEnv })
-    await exec('sentry-cli', ['releases', 'deploys', releaseName, 'new', '-e', environment, '-n', `${releaseName}-${environment}`], { env: sentryEnv })
+    await exec(
+      'sentry-cli',
+      ['releases', 'deploys', releaseName, 'new', '-e', environment, '-n', `${releaseName}-${environment}`],
+      { env: sentryEnv }
+    )
   } finally {
     core.endGroup()
   }
@@ -191,10 +263,15 @@ export async function trackSentryRelease(
 }
 
 /** Writes a deploy summary to the GitHub Actions step summary. */
-async function writeSummary(inputs: Inputs, sentryTracked: boolean, failed = false): Promise<void> {
+async function writeSummary(
+  inputs: Inputs,
+  sentryTracked: boolean,
+  deploymentResults: DeploymentResult[],
+  failed = false
+): Promise<void> {
   const serviceRows = inputs.services.map((s) => [s.serviceId, s.image])
 
-  await core.summary
+  let builder = core.summary
     .addHeading(failed ? '❌ Spryx Deploy Failed' : '🚀 Spryx Deploy')
     .addTable([
       [
@@ -212,7 +289,24 @@ async function writeSummary(inputs: Inputs, sentryTracked: boolean, failed = fal
       ['Release', inputs.releaseName],
       ['Sentry tracking', sentryTracked ? '✅ tracked' : '⏭️ skipped'],
     ])
-    .write()
+
+  if (deploymentResults.length > 0) {
+    const deployRows = deploymentResults.map((r) => {
+      const statusEmoji = r.status === 'SUCCESS' ? '✅' : '❌'
+      return [r.deploymentId, `${statusEmoji} ${r.status}`, r.url ?? '—']
+    })
+
+    builder = builder.addTable([
+      [
+        { data: 'Deployment ID', header: true },
+        { data: 'Status', header: true },
+        { data: 'URL', header: true },
+      ],
+      ...deployRows,
+    ])
+  }
+
+  await builder.write()
 }
 
 /** Entry point: parses inputs, deploys all services, and optionally tracks the Sentry release. */
@@ -222,9 +316,15 @@ export async function run(): Promise<void> {
   let failed = false
   let caughtError: unknown
   const sentryTracked = Boolean(inputs.sentryAuthToken)
+  let deploymentResults: DeploymentResult[] = []
 
   try {
-    await deployAllServices(inputs.services, inputs.environmentId, inputs.railwayToken)
+    deploymentResults = await deployAllServices(
+      inputs.services,
+      inputs.environmentId,
+      inputs.railwayToken,
+      inputs.deployWaitTimeoutMs
+    )
 
     await trackSentryRelease(
       inputs.releaseName,
@@ -237,7 +337,7 @@ export async function run(): Promise<void> {
     failed = true
     caughtError = err
   } finally {
-    await writeSummary(inputs, sentryTracked, failed)
+    await writeSummary(inputs, sentryTracked, deploymentResults, failed)
   }
 
   if (caughtError !== undefined) {

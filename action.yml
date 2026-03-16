@@ -25,6 +25,10 @@ inputs:
   sentry_projects:
     description: 'Comma-separated Sentry project slugs (e.g. "api,worker,bo-api")'
     required: false
+  deploy_wait_timeout_minutes:
+    description: 'How long to wait for each Railway deployment to reach a terminal state (minutes)'
+    required: false
+    default: '10'
 runs:
   using: 'node24'
   main: 'dist/index.js'

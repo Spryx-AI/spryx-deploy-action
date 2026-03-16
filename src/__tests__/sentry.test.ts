@@ -29,7 +29,10 @@ describe('trackSentryRelease', () => {
     expect(calls).toContainEqual(['npm', ['install', '-g', '@sentry/cli@2.28.0']])
     expect(calls).toContainEqual(['sentry-cli', ['releases', 'new', 'app@1.0.0', '-p', 'api']])
     expect(calls).toContainEqual(['sentry-cli', ['releases', 'set-commits', 'app@1.0.0', '--auto']])
-    expect(calls).toContainEqual(['sentry-cli', ['releases', 'deploys', 'app@1.0.0', 'new', '-e', 'production']])
+    expect(calls).toContainEqual([
+      'sentry-cli',
+      ['releases', 'deploys', 'app@1.0.0', 'new', '-e', 'production', '-n', 'app@1.0.0-production'],
+    ])
   })
 
   it('passes correct project flags for multiple projects', async () => {

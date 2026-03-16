@@ -146,4 +146,29 @@ describe('parseInputs', () => {
 
     expect(() => parseInputs()).toThrow('Invalid services input')
   })
+
+  it('parses deploy_wait_timeout_minutes into milliseconds', () => {
+    setInputs({
+      services: '[{"serviceId":"srv_1","image":"img:1"}]',
+      environment: 'production',
+      environment_id: 'env_1',
+      railway_token: 'tok',
+      release_name: 'app@1.0.0',
+      deploy_wait_timeout_minutes: '5',
+    })
+
+    expect(parseInputs().deployWaitTimeoutMs).toBe(300_000)
+  })
+
+  it('defaults deploy_wait_timeout_minutes to 10 minutes when not provided', () => {
+    setInputs({
+      services: '[{"serviceId":"srv_1","image":"img:1"}]',
+      environment: 'production',
+      environment_id: 'env_1',
+      railway_token: 'tok',
+      release_name: 'app@1.0.0',
+    })
+
+    expect(parseInputs().deployWaitTimeoutMs).toBe(600_000)
+  })
 })

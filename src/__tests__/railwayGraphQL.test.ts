@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { railwayGraphQL, updateServiceImage, deployService } from '../action'
+import { railwayGraphQL, updateServiceImage, deployService, pollDeploymentStatus } from '../action'
 
 const mockFetch = vi.fn()
 vi.stubGlobal('fetch', mockFetch)
@@ -86,13 +86,100 @@ describe('updateServiceImage', () => {
 })
 
 describe('deployService', () => {
-  it('sends correct mutation and variables', async () => {
-    mockResponse({})
+  it('sends correct mutation and variables and returns deploymentId', async () => {
+    mockResponse({ data: { serviceInstanceDeploy: 'dep_abc123' } })
 
-    await deployService('tok', 'env_1', 'srv_1')
+    const deploymentId = await deployService('tok', 'env_1', 'srv_1')
 
+    expect(deploymentId).toBe('dep_abc123')
     const body = JSON.parse(mockFetch.mock.calls[0][1].body)
     expect(body.variables).toEqual({ environmentId: 'env_1', serviceId: 'srv_1' })
     expect(body.query).toContain('serviceInstanceDeploy')
+  })
+})
+
+describe('pollDeploymentStatus', () => {
+  it('returns immediately on SUCCESS', async () => {
+    mockResponse({
+      data: {
+        deployment: { status: 'SUCCESS', staticUrl: 'https://app.railway.app', createdAt: '2026-01-01T00:00:00Z' },
+      },
+    })
+
+    const result = await pollDeploymentStatus('tok', 'dep_1', 60_000)
+
+    expect(result).toEqual({
+      deploymentId: 'dep_1',
+      status: 'SUCCESS',
+      url: 'https://app.railway.app',
+      createdAt: '2026-01-01T00:00:00Z',
+    })
+  })
+
+  it('returns on FAILED terminal state', async () => {
+    mockResponse({ data: { deployment: { status: 'FAILED', staticUrl: undefined, createdAt: undefined } } })
+
+    const result = await pollDeploymentStatus('tok', 'dep_2', 60_000)
+
+    expect(result.status).toBe('FAILED')
+    expect(result.deploymentId).toBe('dep_2')
+  })
+
+  it('returns on CRASHED terminal state', async () => {
+    mockResponse({ data: { deployment: { status: 'CRASHED' } } })
+
+    const result = await pollDeploymentStatus('tok', 'dep_3', 60_000)
+
+    expect(result.status).toBe('CRASHED')
+  })
+
+  it('polls until terminal state', async () => {
+    vi.useFakeTimers()
+
+    mockResponse({ data: { deployment: { status: 'BUILDING' } } })
+    mockResponse({ data: { deployment: { status: 'DEPLOYING' } } })
+    mockResponse({ data: { deployment: { status: 'SUCCESS', staticUrl: 'https://app.up.railway.app' } } })
+
+    const promise = pollDeploymentStatus('tok', 'dep_4', 120_000, 10_000)
+
+    await vi.advanceTimersByTimeAsync(10_000)
+    await vi.advanceTimersByTimeAsync(10_000)
+    const result = await promise
+
+    expect(mockFetch).toHaveBeenCalledTimes(3)
+    expect(result.status).toBe('SUCCESS')
+    expect(result.url).toBe('https://app.up.railway.app')
+
+    vi.useRealTimers()
+  })
+
+  it('throws when timeout is exceeded before terminal state', async () => {
+    vi.useFakeTimers()
+
+    mockFetch.mockResolvedValue({
+      ok: true,
+      statusText: 'OK',
+      json: () => Promise.resolve({ data: { deployment: { status: 'BUILDING' } } }),
+    })
+
+    const promise = pollDeploymentStatus('tok', 'dep_5', 15_000, 10_000)
+    const expectReject = expect(promise).rejects.toThrow('did not reach a terminal state within')
+
+    await vi.advanceTimersByTimeAsync(10_000)
+    await expectReject
+
+    vi.useRealTimers()
+  })
+
+  it('sends correct query and variables', async () => {
+    mockResponse({ data: { deployment: { status: 'SUCCESS' } } })
+
+    await pollDeploymentStatus('tok', 'dep_xyz', 60_000)
+
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body)
+    expect(body.variables).toEqual({ id: 'dep_xyz' })
+    expect(body.query).toContain('deployment(id: $id)')
+    expect(body.query).toContain('status')
+    expect(body.query).toContain('staticUrl')
   })
 })
