@@ -25909,7 +25909,8 @@ async function writeSummary(inputs, sentryTracked, deploymentResults, projectId,
             const statusEmoji = r.status === 'SUCCESS' ? '✅' : '❌';
             const railwayUrl = `https://railway.com/project/${projectId}/service/${r.serviceId}?environmentId=${r.environmentId}&id=${r.deploymentId}#deploy`;
             const railwayLink = `<a href="${railwayUrl}">${r.deploymentId}</a>`;
-            const appUrl = r.url ? `<a href="${r.url}">${r.url}</a>` : '—';
+            const normalizedUrl = r.url ? (r.url.startsWith('http') ? r.url : `https://${r.url}`) : null;
+            const appUrl = normalizedUrl ? `<a href="${normalizedUrl}">${normalizedUrl}</a>` : '—';
             return [railwayLink, `${statusEmoji} ${r.status}`, appUrl];
         });
         builder = builder.addTable([
