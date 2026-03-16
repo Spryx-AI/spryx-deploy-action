@@ -25686,6 +25686,7 @@ exports.parseInputs = parseInputs;
 exports.railwayGraphQL = railwayGraphQL;
 exports.updateServiceImage = updateServiceImage;
 exports.deployService = deployService;
+exports.getLatestDeploymentId = getLatestDeploymentId;
 exports.pollDeploymentStatus = pollDeploymentStatus;
 exports.deployAllServices = deployAllServices;
 exports.trackSentryRelease = trackSentryRelease;
@@ -25767,12 +25768,27 @@ async function updateServiceImage(token, environmentId, serviceId, image) {
       serviceInstanceUpdate(environmentId: $environmentId, serviceId: $serviceId, input: $input)
     }`, { environmentId, serviceId, input: { source: { image } } });
 }
-/** Triggers a deploy for a Railway service instance and returns the deployment ID. */
+/** Triggers a deploy for a Railway service instance. */
 async function deployService(token, environmentId, serviceId) {
-    const data = await railwayGraphQL(token, `mutation DeployService($environmentId: String!, $serviceId: String!) {
+    await railwayGraphQL(token, `mutation DeployService($environmentId: String!, $serviceId: String!) {
       serviceInstanceDeploy(environmentId: $environmentId, serviceId: $serviceId)
     }`, { environmentId, serviceId });
-    return data.serviceInstanceDeploy;
+}
+/** Returns the ID of the most recent deployment for a service in a given environment. */
+async function getLatestDeploymentId(token, serviceId, environmentId) {
+    const data = await railwayGraphQL(token, `query GetLatestDeployment($serviceId: String!, $environmentId: String!) {
+      deployments(first: 1, input: { serviceId: $serviceId, environmentId: $environmentId }) {
+        edges {
+          node {
+            id
+          }
+        }
+      }
+    }`, { serviceId, environmentId });
+    const id = data.deployments.edges[0]?.node.id;
+    if (!id)
+        throw new Error(`No deployment found for service ${serviceId} in environment ${environmentId}`);
+    return id;
 }
 /**
  * Polls the Railway API until the deployment reaches a terminal state or the timeout is exceeded.
@@ -25805,7 +25821,8 @@ async function deployAllServices(services, environmentId, railwayToken, timeoutM
         core.startGroup(`Deploy: ${serviceId}`);
         try {
             await updateServiceImage(railwayToken, environmentId, serviceId, image);
-            const deploymentId = await deployService(railwayToken, environmentId, serviceId);
+            await deployService(railwayToken, environmentId, serviceId);
+            const deploymentId = await getLatestDeploymentId(railwayToken, serviceId, environmentId);
             core.info(`Deployment started: ${deploymentId}`);
             return await pollDeploymentStatus(railwayToken, deploymentId, timeoutMs);
         }
