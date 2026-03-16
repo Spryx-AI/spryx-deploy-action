@@ -19,7 +19,6 @@ export interface DeploymentResult {
 /** Parsed and validated action inputs. */
 export interface Inputs {
   services: ServiceInput[]
-  projectId: string
   environmentId: string
   railwayToken: string
   releaseName: string
@@ -53,7 +52,6 @@ export function parseInputs(): Inputs {
   return {
     services,
     environment,
-    projectId: core.getInput('project_id', { required: true }),
     environmentId: core.getInput('environment_id', { required: true }),
     railwayToken: core.getInput('railway_token', { required: true }),
     releaseName: core.getInput('release_name', { required: true }),
@@ -163,6 +161,20 @@ export async function getLatestDeploymentId(token: string, serviceId: string, en
   const id = data.deployments.edges[0]?.node.id
   if (!id) throw new Error(`No deployment found for service ${serviceId} in environment ${environmentId}`)
   return id
+}
+
+/** Returns the project ID that owns the given service. */
+export async function getProjectId(token: string, serviceId: string): Promise<string> {
+  const data = await railwayGraphQL<{ service: { projectId: string } }>(
+    token,
+    `query GetServiceProject($serviceId: String!) {
+      service(id: $serviceId) {
+        projectId
+      }
+    }`,
+    { serviceId }
+  )
+  return data.service.projectId
 }
 
 /**
@@ -294,6 +306,7 @@ async function writeSummary(
   inputs: Inputs,
   sentryTracked: boolean,
   deploymentResults: DeploymentResult[],
+  projectId: string,
   failed = false
 ): Promise<void> {
   const serviceRows = inputs.services.map((s) => [s.serviceId, s.image])
@@ -320,7 +333,7 @@ async function writeSummary(
   if (deploymentResults.length > 0) {
     const deployRows = deploymentResults.map((r) => {
       const statusEmoji = r.status === 'SUCCESS' ? '✅' : '❌'
-      const railwayUrl = `https://railway.com/project/${inputs.projectId}/service/${r.serviceId}?environmentId=${inputs.environmentId}&id=${r.deploymentId}#deploy`
+      const railwayUrl = `https://railway.com/project/${projectId}/service/${r.serviceId}?environmentId=${inputs.environmentId}&id=${r.deploymentId}#deploy`
       const railwayLink = `<a href="${railwayUrl}">${r.deploymentId}</a>`
       const appUrl = r.url ? `<a href="${r.url}">${r.url}</a>` : '—'
       return [railwayLink, `${statusEmoji} ${r.status}`, appUrl]
@@ -347,8 +360,10 @@ export async function run(): Promise<void> {
   let caughtError: unknown
   const sentryTracked = Boolean(inputs.sentryAuthToken)
   let deploymentResults: DeploymentResult[] = []
+  let projectId = ''
 
   try {
+    projectId = await getProjectId(inputs.railwayToken, inputs.services[0].serviceId)
     deploymentResults = await deployAllServices(
       inputs.services,
       inputs.environmentId,
@@ -367,7 +382,7 @@ export async function run(): Promise<void> {
     failed = true
     caughtError = err
   } finally {
-    await writeSummary(inputs, sentryTracked, deploymentResults, failed)
+    await writeSummary(inputs, sentryTracked, deploymentResults, projectId, failed)
   }
 
   if (caughtError !== undefined) {

@@ -4,9 +4,6 @@ inputs:
   services:
     description: 'JSON array of { serviceId, image } pairs (e.g. ''[{"serviceId":"srv_xxx","image":"ghcr.io/org/app:v1.2.3"}]'')'
     required: true
-  project_id:
-    description: 'Railway project ID'
-    required: true
   environment_id:
     description: 'Railway environment ID'
     required: true

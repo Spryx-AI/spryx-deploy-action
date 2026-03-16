@@ -4,6 +4,7 @@ import {
   updateServiceImage,
   deployService,
   getLatestDeploymentId,
+  getProjectId,
   pollDeploymentStatus,
 } from '../action'
 
@@ -119,6 +120,19 @@ describe('getLatestDeploymentId', () => {
     mockResponse({ data: { deployments: { edges: [] } } })
 
     await expect(getLatestDeploymentId('tok', 'srv_1', 'env_1')).rejects.toThrow('No deployment found')
+  })
+})
+
+describe('getProjectId', () => {
+  it('returns the project ID for a service', async () => {
+    mockResponse({ data: { service: { projectId: 'proj_abc123' } } })
+
+    const projectId = await getProjectId('tok', 'srv_1')
+
+    expect(projectId).toBe('proj_abc123')
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body)
+    expect(body.variables).toEqual({ serviceId: 'srv_1' })
+    expect(body.query).toContain('projectId')
   })
 })
 
