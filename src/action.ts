@@ -128,16 +128,38 @@ export async function updateServiceImage(
   )
 }
 
-/** Triggers a deploy for a Railway service instance and returns the deployment ID. */
-export async function deployService(token: string, environmentId: string, serviceId: string): Promise<string> {
-  const data = await railwayGraphQL<{ serviceInstanceDeploy: string }>(
+/** Triggers a deploy for a Railway service instance. */
+export async function deployService(token: string, environmentId: string, serviceId: string): Promise<void> {
+  await railwayGraphQL(
     token,
     `mutation DeployService($environmentId: String!, $serviceId: String!) {
       serviceInstanceDeploy(environmentId: $environmentId, serviceId: $serviceId)
     }`,
     { environmentId, serviceId }
   )
-  return data.serviceInstanceDeploy
+}
+
+/** Returns the ID of the most recent deployment for a service in a given environment. */
+export async function getLatestDeploymentId(token: string, serviceId: string, environmentId: string): Promise<string> {
+  const data = await railwayGraphQL<{
+    deployments: { edges: { node: { id: string } }[] }
+  }>(
+    token,
+    `query GetLatestDeployment($serviceId: String!, $environmentId: String!) {
+      deployments(first: 1, input: { serviceId: $serviceId, environmentId: $environmentId }) {
+        edges {
+          node {
+            id
+          }
+        }
+      }
+    }`,
+    { serviceId, environmentId }
+  )
+
+  const id = data.deployments.edges[0]?.node.id
+  if (!id) throw new Error(`No deployment found for service ${serviceId} in environment ${environmentId}`)
+  return id
 }
 
 /**
@@ -197,7 +219,8 @@ export async function deployAllServices(
       core.startGroup(`Deploy: ${serviceId}`)
       try {
         await updateServiceImage(railwayToken, environmentId, serviceId, image)
-        const deploymentId = await deployService(railwayToken, environmentId, serviceId)
+        await deployService(railwayToken, environmentId, serviceId)
+        const deploymentId = await getLatestDeploymentId(railwayToken, serviceId, environmentId)
         core.info(`Deployment started: ${deploymentId}`)
         return await pollDeploymentStatus(railwayToken, deploymentId, timeoutMs)
       } finally {

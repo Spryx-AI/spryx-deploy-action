@@ -1,5 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { railwayGraphQL, updateServiceImage, deployService, pollDeploymentStatus } from '../action'
+import {
+  railwayGraphQL,
+  updateServiceImage,
+  deployService,
+  getLatestDeploymentId,
+  pollDeploymentStatus,
+} from '../action'
 
 const mockFetch = vi.fn()
 vi.stubGlobal('fetch', mockFetch)
@@ -86,15 +92,33 @@ describe('updateServiceImage', () => {
 })
 
 describe('deployService', () => {
-  it('sends correct mutation and variables and returns deploymentId', async () => {
-    mockResponse({ data: { serviceInstanceDeploy: 'dep_abc123' } })
+  it('sends correct mutation and variables', async () => {
+    mockResponse({})
 
-    const deploymentId = await deployService('tok', 'env_1', 'srv_1')
+    await deployService('tok', 'env_1', 'srv_1')
 
-    expect(deploymentId).toBe('dep_abc123')
     const body = JSON.parse(mockFetch.mock.calls[0][1].body)
     expect(body.variables).toEqual({ environmentId: 'env_1', serviceId: 'srv_1' })
     expect(body.query).toContain('serviceInstanceDeploy')
+  })
+})
+
+describe('getLatestDeploymentId', () => {
+  it('returns the most recent deployment ID', async () => {
+    mockResponse({ data: { deployments: { edges: [{ node: { id: 'dep_abc123' } }] } } })
+
+    const id = await getLatestDeploymentId('tok', 'srv_1', 'env_1')
+
+    expect(id).toBe('dep_abc123')
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body)
+    expect(body.variables).toEqual({ serviceId: 'srv_1', environmentId: 'env_1' })
+    expect(body.query).toContain('deployments')
+  })
+
+  it('throws when no deployment is found', async () => {
+    mockResponse({ data: { deployments: { edges: [] } } })
+
+    await expect(getLatestDeploymentId('tok', 'srv_1', 'env_1')).rejects.toThrow('No deployment found')
   })
 })
 
