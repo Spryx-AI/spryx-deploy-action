@@ -4,7 +4,8 @@
     "@semantic-release/commit-analyzer",
     "@semantic-release/release-notes-generator",
     ["@semantic-release/exec", {
-      "prepareCmd": "npm run build"
+      "prepareCmd": "npm run build",
+      "successCmd": "scripts/update-floating-tags.sh ${nextRelease.version}"
     }],
     ["@semantic-release/npm", {
       "npmPublish": false
