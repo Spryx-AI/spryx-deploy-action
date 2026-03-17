@@ -1,6 +1,6 @@
 {
   "name": "spryx-deploy-action",
-  "version": "1.4.5",
+  "version": "2.0.0",
   "description": "Deploy a Docker image to Railway",
   "main": "dist/index.js",
   "scripts": {
