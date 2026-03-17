@@ -1,11 +1,4 @@
 import * as core from '@actions/core'
-import { exec } from '@actions/exec'
-
-/** A Railway service to deploy, identified by its service ID and the Docker image to use. */
-export interface ServiceInput {
-  serviceId: string
-  image: string
-}
 
 /** The result of a Railway deployment poll. */
 export interface DeploymentResult {
@@ -19,57 +12,22 @@ export interface DeploymentResult {
 
 /** Parsed and validated action inputs. */
 export interface Inputs {
-  services: ServiceInput[]
+  serviceId: string
+  image: string
   environmentId: string
   railwayToken: string
-  releaseName: string
   environment: string
-  sentryAuthToken: string
-  sentryOrg: string
-  sentryProjects: string[]
   deployWaitTimeoutMs: number
 }
 
-/** Reads and validates all action inputs, throwing on invalid values. */
+/** Reads and validates all action inputs. */
 export function parseInputs(): Inputs {
-  const servicesRaw = core.getInput('services', { required: true })
-  const environment = core.getInput('environment', { required: true })
-
-  let services: ServiceInput[]
-  try {
-    services = JSON.parse(servicesRaw)
-    if (
-      !Array.isArray(services) ||
-      services.some(
-        (s) => typeof s !== 'object' || s === null || typeof s.serviceId !== 'string' || typeof s.image !== 'string'
-      )
-    ) {
-      throw new Error('services must be a JSON array of { serviceId, image } objects')
-    }
-  } catch (err) {
-    throw new Error(`Invalid services input: ${err}`)
-  }
-
-  const sentryAuthToken = core.getInput('sentry_auth_token')
-  const releaseName = core.getInput('release_name')
-
-  if (sentryAuthToken && !releaseName) {
-    throw new Error('release_name is required when sentry_auth_token is provided')
-  }
-
   return {
-    services,
-    environment,
+    serviceId: core.getInput('service_id', { required: true }),
+    image: core.getInput('image', { required: true }),
+    environment: core.getInput('environment', { required: true }),
     environmentId: core.getInput('environment_id', { required: true }),
     railwayToken: core.getInput('railway_token', { required: true }),
-    releaseName,
-    sentryAuthToken,
-    sentryOrg: core.getInput('sentry_org'),
-    sentryProjects: core
-      .getInput('sentry_projects')
-      .split(',')
-      .map((s) => s.trim())
-      .filter(Boolean),
     deployWaitTimeoutMs: parseInt(core.getInput('deploy_wait_timeout_minutes') || '10', 10) * 60_000,
   }
 }
@@ -138,7 +96,7 @@ export async function updateServiceImage(
 }
 
 /** Triggers a deploy for a Railway service instance. */
-export async function deployService(token: string, environmentId: string, serviceId: string): Promise<void> {
+export async function triggerDeploy(token: string, environmentId: string, serviceId: string): Promise<void> {
   await railwayGraphQL(
     token,
     `mutation DeployService($environmentId: String!, $serviceId: String!) {
@@ -230,124 +188,27 @@ export async function pollDeploymentStatus(
   }
 }
 
-/** Updates the image, triggers a deploy, and waits for completion for all services in parallel. */
-export async function deployAllServices(
-  services: ServiceInput[],
-  environmentId: string,
-  railwayToken: string,
-  timeoutMs: number
-): Promise<DeploymentResult[]> {
-  core.info(`Deploying ${services.length} service(s): ${services.map((s) => s.serviceId).join(', ')}`)
-
-  const results = await Promise.all(
-    services.map(async ({ serviceId, image }): Promise<DeploymentResult> => {
-      core.startGroup(`Deploy: ${serviceId}`)
-      try {
-        await updateServiceImage(railwayToken, environmentId, serviceId, image)
-        await deployService(railwayToken, environmentId, serviceId)
-        const deploymentId = await getLatestDeploymentId(railwayToken, serviceId, environmentId)
-        core.info(`Deployment started: ${deploymentId}`)
-        return await pollDeploymentStatus(railwayToken, deploymentId, timeoutMs)
-      } finally {
-        core.endGroup()
-      }
-    })
-  )
-
-  core.info('All Railway deploys completed.')
-  return results
-}
-
-/**
- * Creates a Sentry release, associates commits, and registers the deploy.
- * Skips silently if `sentryAuthToken` is not provided.
- */
-export async function trackSentryRelease(
-  releaseName: string,
-  sentryAuthToken: string,
-  sentryOrg: string,
-  sentryProjects: string[],
-  environment: string
-): Promise<void> {
-  if (!sentryAuthToken) {
-    core.info('No sentry_auth_token provided — skipping Sentry release tracking.')
-    return
-  }
-
-  core.startGroup('Sentry release tracking')
-  try {
-    await exec('npm', ['install', '-g', '@sentry/cli@2.28.0'])
-
-    const sentryEnv = {
-      ...process.env,
-      SENTRY_AUTH_TOKEN: sentryAuthToken,
-      SENTRY_ORG: sentryOrg,
-    } as Record<string, string>
-
-    const projectFlags = sentryProjects.flatMap((p) => ['-p', p])
-
-    try {
-      await exec('sentry-cli', ['releases', 'new', releaseName, ...projectFlags], { env: sentryEnv })
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      if (message.toLowerCase().includes('already exists')) {
-        core.warning(`sentry-cli releases new: release already exists, continuing. (${message})`)
-      } else {
-        throw err
-      }
-    }
-
-    await exec('sentry-cli', ['releases', 'set-commits', releaseName, '--auto'], { env: sentryEnv })
-    await exec(
-      'sentry-cli',
-      ['releases', 'deploys', releaseName, 'new', '-e', environment, '-n', `${releaseName}-${environment}`],
-      { env: sentryEnv }
-    )
-  } finally {
-    core.endGroup()
-  }
-
-  core.info(`Sentry release ${releaseName} deployed to ${environment}.`)
-}
-
 /** Writes a deploy summary to the GitHub Actions step summary. */
-async function writeSummary(
-  inputs: Inputs,
-  sentryTracked: boolean,
-  deploymentResults: DeploymentResult[],
-  projectId: string,
-  failed = false
-): Promise<void> {
-  const serviceRows = inputs.services.map((s) => [s.serviceId, s.image])
+async function writeSummary(inputs: Inputs, result: DeploymentResult | null, projectId: string, failed = false): Promise<void> {
+  const statusEmoji = result?.status === 'SUCCESS' ? '✅' : '❌'
 
   let builder = core.summary
     .addHeading(failed ? '❌ Spryx Deploy Failed' : '🚀 Spryx Deploy')
-    .addTable([
-      [
-        { data: 'Service ID', header: true },
-        { data: 'Image', header: true },
-      ],
-      ...serviceRows,
-    ])
     .addTable([
       [
         { data: 'Field', header: true },
         { data: 'Value', header: true },
       ],
       ['Environment', inputs.environment],
-      ['Release', inputs.releaseName || '—'],
-      ['Sentry tracking', sentryTracked ? '✅ tracked' : '⏭️ skipped'],
+      ['Service', inputs.serviceId],
+      ['Image', inputs.image],
     ])
 
-  if (deploymentResults.length > 0) {
-    const deployRows = deploymentResults.map((r) => {
-      const statusEmoji = r.status === 'SUCCESS' ? '✅' : '❌'
-      const railwayUrl = `https://railway.com/project/${projectId}/service/${r.serviceId}?environmentId=${r.environmentId}&id=${r.deploymentId}#deploy`
-      const railwayLink = `<a href="${railwayUrl}">${r.deploymentId}</a>`
-      const normalizedUrl = r.url ? (r.url.startsWith('http') ? r.url : `https://${r.url}`) : null
-      const appUrl = normalizedUrl ? `<a href="${normalizedUrl}">${normalizedUrl}</a>` : '—'
-      return [railwayLink, `${statusEmoji} ${r.status}`, appUrl]
-    })
+  if (result) {
+    const railwayUrl = `https://railway.com/project/${projectId}/service/${result.serviceId}?environmentId=${result.environmentId}&id=${result.deploymentId}#deploy`
+    const railwayLink = `<a href="${railwayUrl}">${result.deploymentId}</a>`
+    const normalizedUrl = result.url ? (result.url.startsWith('http') ? result.url : `https://${result.url}`) : null
+    const appUrl = normalizedUrl ? `<a href="${normalizedUrl}">${normalizedUrl}</a>` : '—'
 
     builder = builder.addTable([
       [
@@ -355,44 +216,44 @@ async function writeSummary(
         { data: 'Status', header: true },
         { data: 'URL', header: true },
       ],
-      ...deployRows,
+      [railwayLink, `${statusEmoji} ${result.status}`, appUrl],
     ])
   }
 
   await builder.write()
 }
 
-/** Entry point: parses inputs, deploys all services, and optionally tracks the Sentry release. */
+/** Entry point: parses inputs, deploys the service, and writes a summary. */
 export async function run(): Promise<void> {
   const inputs = parseInputs()
 
   let failed = false
   let caughtError: unknown
-  const sentryTracked = Boolean(inputs.sentryAuthToken)
-  let deploymentResults: DeploymentResult[] = []
+  let result: DeploymentResult | null = null
   let projectId = ''
 
   try {
-    projectId = await getProjectId(inputs.railwayToken, inputs.services[0].serviceId)
-    deploymentResults = await deployAllServices(
-      inputs.services,
-      inputs.environmentId,
-      inputs.railwayToken,
-      inputs.deployWaitTimeoutMs
-    )
+    core.info(`Deploying service ${inputs.serviceId} with image ${inputs.image}`)
 
-    await trackSentryRelease(
-      inputs.releaseName,
-      inputs.sentryAuthToken,
-      inputs.sentryOrg,
-      inputs.sentryProjects,
-      inputs.environment
-    )
+    projectId = await getProjectId(inputs.railwayToken, inputs.serviceId)
+    await updateServiceImage(inputs.railwayToken, inputs.environmentId, inputs.serviceId, inputs.image)
+    await triggerDeploy(inputs.railwayToken, inputs.environmentId, inputs.serviceId)
+
+    const deploymentId = await getLatestDeploymentId(inputs.railwayToken, inputs.serviceId, inputs.environmentId)
+    core.info(`Deployment started: ${deploymentId}`)
+
+    result = await pollDeploymentStatus(inputs.railwayToken, deploymentId, inputs.deployWaitTimeoutMs)
+
+    if (TERMINAL_ERROR.has(result.status)) {
+      throw new Error(`Deployment ${deploymentId} failed with status: ${result.status}`)
+    }
+
+    core.info('Deploy completed successfully.')
   } catch (err) {
     failed = true
     caughtError = err
   } finally {
-    await writeSummary(inputs, sentryTracked, deploymentResults, projectId, failed)
+    await writeSummary(inputs, result, projectId, failed)
   }
 
   if (caughtError !== undefined) {

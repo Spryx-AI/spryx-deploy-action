@@ -1,8 +1,11 @@
 name: 'Spryx Deploy'
-description: 'Deploy to Railway with Sentry release tracking'
+description: 'Deploy a Docker image to Railway'
 inputs:
-  services:
-    description: 'JSON array of { serviceId, image } pairs (e.g. ''[{"serviceId":"srv_xxx","image":"ghcr.io/org/app:v1.2.3"}]'')'
+  service_id:
+    description: 'Railway service ID'
+    required: true
+  image:
+    description: 'Docker image to deploy (e.g. ghcr.io/org/app:v1.2.3)'
     required: true
   environment_id:
     description: 'Railway environment ID'
@@ -13,20 +16,8 @@ inputs:
   railway_token:
     description: 'Railway workspace token (used as Bearer token for the GraphQL API)'
     required: true
-  release_name:
-    description: 'Sentry release name (e.g. my-app@1.2.3). Required only when using Sentry tracking.'
-    required: false
-  sentry_auth_token:
-    description: 'Sentry auth token'
-    required: false
-  sentry_org:
-    description: 'Sentry org slug'
-    required: false
-  sentry_projects:
-    description: 'Comma-separated Sentry project slugs (e.g. "api,worker,bo-api")'
-    required: false
   deploy_wait_timeout_minutes:
-    description: 'How long to wait for each Railway deployment to reach a terminal state (minutes)'
+    description: 'How long to wait for the Railway deployment to reach a terminal state (minutes)'
     required: false
     default: '10'
 runs:

@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import {
   railwayGraphQL,
   updateServiceImage,
-  deployService,
+  triggerDeploy,
   getLatestDeploymentId,
   getProjectId,
   pollDeploymentStatus,
@@ -92,11 +92,11 @@ describe('updateServiceImage', () => {
   })
 })
 
-describe('deployService', () => {
+describe('triggerDeploy', () => {
   it('sends correct mutation and variables', async () => {
     mockResponse({})
 
-    await deployService('tok', 'env_1', 'srv_1')
+    await triggerDeploy('tok', 'env_1', 'srv_1')
 
     const body = JSON.parse(mockFetch.mock.calls[0][1].body)
     expect(body.variables).toEqual({ environmentId: 'env_1', serviceId: 'srv_1' })
